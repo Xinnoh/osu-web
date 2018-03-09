@@ -36,15 +36,16 @@
                         ></div>
                     </a>
 
-                    <a
+                    <button
                         class="logo-menu__user-slice logo-menu__user-slice--session logo-menu__user-slice--bg js-logout-link"
-                        href="{{ route('logout') }}"
+                        type="button"
+                        data-url="{{ route('logout') }}"
                         data-method="delete"
                         data-confirm="{{ trans('users.logout_confirm') }}"
                         data-remote="1"
                     >
                         <i class="fa fa-sign-out"></i>
-                    </a>
+                    </button>
                 </div>
             @else
                 <a
@@ -67,7 +68,11 @@
 
         @foreach (nav_links() as $section => $links)
             <div class="logo-menu__menu-item">
-                <a href="{{ array_values($links)[0] }}" class="logo-menu__menu-link js-menu" data-menu-target="logo-menu--{{ $section }}">
+                <a
+                    href="{{ $links['_'] ?? array_values($links)[0] }}"
+                    class="logo-menu__menu-link js-menu"
+                    data-menu-target="logo-menu--{{ $section }}"
+                >
                     <div class="logo-menu__menu-stripe logo-menu__menu-stripe--hover u-section-{{ $section }}--bg"></div>
                     <span class="logo-menu__menu-text logo-menu__menu-text--main">
                         {{ trans("layout.menu.{$section}._") }}
@@ -80,6 +85,9 @@
                     <div class="logo-menu__menu-stripe u-section-{{ $section }}--bg"></div>
 
                     @foreach ($links as $action => $link)
+                        @if ($action === '_')
+                            @continue
+                        @endif
                         <div class="logo-menu__menu-item">
                             <a href="{{ $link }}" class="logo-menu__menu-link logo-menu__menu-link">
                                 <span class="logo-menu__menu-text logo-menu__menu-text--sub">

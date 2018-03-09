@@ -27,7 +27,12 @@ class PaypalPaymentProcessor extends PaymentProcessor
 {
     public function getOrderNumber()
     {
-        return $this['invoice'];
+        // If refund, there might not be an invoice id in production.
+        if ($this->getNotificationType() === NotificationType::REFUND) {
+            return $this['invoice'] ?? $this['item_number1'];
+        } else {
+            return $this['invoice'];
+        }
     }
 
     public function getPaymentProvider()
@@ -44,7 +49,7 @@ class PaypalPaymentProcessor extends PaymentProcessor
     {
         // TODO: less floaty
 
-        if ($this->getNotificationType() === 'NotificationType::REFUND') {
+        if ($this->getNotificationType() === NotificationType::REFUND) {
             return (float) $this['mc_gross'] + $this['mc_fee'];
         } else {
             return (float) $this['mc_gross'];
@@ -64,18 +69,18 @@ class PaypalPaymentProcessor extends PaymentProcessor
     public function getNotificationType()
     {
         static $payment_statuses = ['Completed'];
-        static $cancel_statuses = ['Expired', 'Failed', 'Refunded', 'Reversed', 'Voided', 'Canceled_Reversal', 'Denied'];
+        static $refund_statuses = ['Refunded', 'Reversed', 'Canceled_Reversal'];
         static $pending_statuses = ['Pending'];
-        static $declined_statuses = ['Declined'];
+        static $rejected_statuses = ['Declined', 'Denied', 'Expired', 'Failed', 'Voided'];
 
         $status = $this->getNotificationTypeRaw();
         if (in_array($status, $payment_statuses, true)) {
             return NotificationType::PAYMENT;
-        } elseif (in_array($status, $cancel_statuses, true)) {
+        } elseif (in_array($status, $refund_statuses, true)) {
             return NotificationType::REFUND;
         } elseif (in_array($status, $pending_statuses, true)) {
             return NotificationType::PENDING;
-        } elseif (in_array($status, $declined_statuses, true)) {
+        } elseif (in_array($status, $rejected_statuses, true)) {
             return NotificationType::REJECTED;
         } else {
             return "unknown__{$status}";
@@ -105,7 +110,7 @@ class PaypalPaymentProcessor extends PaymentProcessor
 
         // order should be in the correct state
         if ($this->isPaymentOrPending()) {
-            if (!in_array($order->status, ['incart', 'checkout'], true)) {
+            if ($order->isAwaitingPayment() === false) {
                 $this->validationErrors()->add(
                     'order.status',
                     '.order.status.not_checkout',
@@ -122,7 +127,7 @@ class PaypalPaymentProcessor extends PaymentProcessor
             }
 
             \Log::debug("purchase.checkout.amount: {$this->getPaymentAmount()}, {$order->getTotal()}");
-            if ($this->getPaymentAmount() !== $order->getTotal()) {
+            if (compare_currency($this->getPaymentAmount(), $order->getTotal()) !== 0) {
                 $this->validationErrors()->add(
                     'purchase.checkout.amount',
                     '.purchase.checkout.amount',
@@ -144,12 +149,19 @@ class PaypalPaymentProcessor extends PaymentProcessor
     protected function getOrder()
     {
         if (!isset($this->order)) {
-            // Use paypal's parent transaction ID for refunds,
+            // Order number can come from anywhere when paypal is involved /tableflip.
+            // Attempt to find order number, else fallback to paypal's parent transaction ID for refunds,
             //  since the IPN might not include the invoice id.
             if ($this->getNotificationType() === NotificationType::REFUND) {
-                $order = Order::withPayments()
-                    ->wherePaymentTransactionId($this['parent_txn_id'], 'paypal')
-                    ->first();
+                if ($this->getOrderNumber() === null) {
+                    $order = Order::withPayments()
+                        ->wherePaymentTransactionId($this['parent_txn_id'], 'paypal')
+                        ->first();
+                } else {
+                    $order = Order::withPayments()
+                        ->whereOrderNumber($this->getOrderNumber())
+                        ->first();
+                }
             } else {
                 $order = Order::withPayments()
                     ->whereOrderNumber($this->getOrderNumber())
